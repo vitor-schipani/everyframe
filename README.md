@@ -1,6 +1,22 @@
 # everyframe
 Go library and CLI that unpacks animated images frame by frame and extracts detection features, so fraud and abuse can't hide between frames.
 
+## Command line
+
+The `everyframe` command looks inside a GIF without writing any code. Run it from a clone with `go run ./cmd/everyframe`, or build it with `go build ./cmd/everyframe`.
+
+```sh
+everyframe inspect file.gif            # header, metadata, and a table of every frame
+everyframe inspect -json file.gif      # the same report as JSON
+everyframe frames -o out/ file.gif     # every frame as PNG files
+```
+
+`inspect` lists each frame's offset, size, position, delay, disposal and palette, and flags anything irregular: `out-of-canvas`, `missing-pixels`, `surplus-data`, `no-palette`, `index-out-of-range`, `truncated`. It also reports comments, application extensions, a missing trailer, and data appended after the end of the GIF.
+
+`frames` writes two pictures per frame: `00000-stored.png`, the frame's own rectangle as it is in the file, and `00000-shown.png`, the whole canvas as a viewer displays it at that point. `-view stored` or `-view shown` writes only one of them.
+
+Both commands read standard input when the file is `-`, and take `-max-pixels`, `-max-frames` and `-max-decoded-bytes` to adjust the decoding limits. They exit with 0 on success, 1 when the file could not be fully decoded (what was decoded is still reported or written), and 2 for a mistake in the command line.
+
 ## Decoding GIFs
 
 Package `gif` reads an animation one frame at a time, so memory use does not grow with the number of frames. Each frame is available as stored (its rectangle of palette indices, palette, delay and disposal method) and, through a `Canvas`, as the picture a viewer would show.

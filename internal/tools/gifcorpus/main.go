@@ -26,10 +26,9 @@ commands:
   verify     check the downloaded files against the manifest, offline
   discover   rebuild the manifest from Wikimedia Commons (maintainers)
 
-Each command has a make target that passes flags through ARGS:
-  make corpus-fetch ARGS="-limit 10"
-  make corpus-verify
-  make corpus-discover
+Two make targets cover the usual workflows:
+  make corpus           fetch, then verify
+  make corpus-refresh   discover, then fetch, then verify (maintainers)
 
 For the flags of a command:
   go run ./internal/tools/gifcorpus <command> -h

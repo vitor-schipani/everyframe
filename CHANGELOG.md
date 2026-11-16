@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-16
+
 ### Added
 
 - Package `gif`: a streaming GIF decoder that yields one frame at a time, as stored and (through `Canvas`) as displayed, together with the container metadata: loop count, comments, application and unknown extensions, and data after the end of the GIF.

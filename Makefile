@@ -23,6 +23,10 @@ inspect: require-file ## Describe a GIF: make inspect FILE=path.gif [ARGS=-json]
 frames: require-file ## Write a GIF's frames as PNGs: make frames FILE=path.gif [OUT=frames]
 	@$(EVERYFRAME) frames -o "$(or $(OUT),frames)" $(ARGS) "$(FILE)"
 
+.PHONY: features
+features: require-file ## Measure a GIF for detection: make features FILE=path.gif [ARGS=-json]
+	@$(EVERYFRAME) features $(ARGS) "$(FILE)"
+
 .PHONY: require-file
 require-file:
 	@test -n "$(FILE)" || { echo "set FILE, for example: make $(MAKECMDGOALS) FILE=path.gif" >&2; exit 2; }

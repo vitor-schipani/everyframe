@@ -20,14 +20,15 @@ import (
 // fileServer serves fixed bodies by path, counts hits, and can be told to
 // fail the first few requests for a path with a given status.
 type fileServer struct {
+	t        *testing.T
 	mu       sync.Mutex
 	bodies   map[string][]byte
 	failures map[string][]int
 	hits     map[string]int
 }
 
-func newFileServer() *fileServer {
-	return &fileServer{bodies: map[string][]byte{}, failures: map[string][]int{}, hits: map[string]int{}}
+func newFileServer(t *testing.T) *fileServer {
+	return &fileServer{t: t, bodies: map[string][]byte{}, failures: map[string][]int{}, hits: map[string]int{}}
 }
 
 func (s *fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +47,9 @@ func (s *fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case !ok:
 		http.NotFound(w, r)
 	default:
-		w.Write(body)
+		if _, err := w.Write(body); err != nil {
+			s.t.Errorf("serve %s: %v", r.URL.Path, err)
+		}
 	}
 }
 
@@ -66,7 +69,7 @@ type fetchFixture struct {
 // newFetchFixture serves three files and returns a manifest describing them.
 func newFetchFixture(t *testing.T) *fetchFixture {
 	t.Helper()
-	files := newFileServer()
+	files := newFileServer(t)
 	srv := httptest.NewServer(files)
 	t.Cleanup(srv.Close)
 	fx := &fetchFixture{files: files, url: srv.URL, dir: filepath.Join(t.TempDir(), "files"), manifest: &Manifest{}}

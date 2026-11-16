@@ -74,7 +74,9 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unexpected", http.StatusBadRequest)
 		return
 	}
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		f.t.Errorf("write API response %q: %v", key, err)
+	}
 }
 
 func listing(complete bool, cont string, files ...apiFile) map[string]any {
@@ -204,7 +206,7 @@ func TestDiscoverReportsAPIError(t *testing.T) {
 func candidates(n int, size int64, tag string) []Entry {
 	out := make([]Entry, n)
 	for i := range out {
-		out[i] = testEntry(fmt.Sprintf("File:%s%d.gif", tag, i), "https://example.org/x", []byte(fmt.Sprintf("%s%d", tag, i)))
+		out[i] = testEntry(fmt.Sprintf("File:%s%d.gif", tag, i), "https://example.org/x", fmt.Appendf(nil, "%s%d", tag, i))
 		out[i].Size = size
 	}
 	return out

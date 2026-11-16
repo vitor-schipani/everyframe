@@ -2,7 +2,6 @@ package gif
 
 import (
 	"io"
-	"math"
 )
 
 // trailingPrefixLen is how much of the data after the end of the GIF is kept.
@@ -25,6 +24,9 @@ type Metadata struct {
 	// UnknownExtensions are extensions of any other kind, apart from the
 	// graphic control extensions that are reported on each Frame.
 	UnknownExtensions []Extension
+	// DroppedExtensions counts the comments and extensions left out of
+	// the three lists above because Limits.MaxMetadataBytes was reached.
+	DroppedExtensions int
 
 	// MissingTrailer reports that the GIF was not closed by a trailer
 	// block: the input ended, or continued with something that is not a
@@ -43,7 +45,8 @@ type Comment struct {
 	// BeforeFrame is the index of the frame that follows the extension,
 	// which equals the frame count if none does.
 	BeforeFrame int
-	// Data is the comment, shorter than Size if it had to be cut.
+	// Data is the comment, shorter than Size if it was cut to stay
+	// within Limits.MaxMetadataBytes.
 	Data []byte
 	// Size is the comment's full length in the file.
 	Size int64
@@ -57,7 +60,7 @@ type Application struct {
 	// such as "NETSCAPE2.0" or "XMP DataXMP".
 	Identifier string
 	// Data is the payload after the identifier, shorter than Size if it
-	// had to be cut.
+	// was cut.
 	Data []byte
 	Size int64
 }
@@ -112,8 +115,8 @@ func (b *blockReader) block() ([]byte, error) {
 }
 
 func (d *Decoder) readComment(br *blockReader, off int64) error {
-	data, size, err := br.readAll(math.MaxInt64)
-	if err != nil {
+	data, size, keep, err := d.readPayload(br)
+	if err != nil || !keep {
 		return err
 	}
 	d.meta.Comments = append(d.meta.Comments, Comment{
@@ -127,13 +130,15 @@ func (d *Decoder) readApplication(br *blockReader, off int64) error {
 	if err != nil {
 		return err
 	}
-	data, size, err := br.readAll(math.MaxInt64)
+	data, size, keep, err := d.readPayload(br)
 	if err != nil {
 		return err
 	}
-	d.meta.Applications = append(d.meta.Applications, Application{
-		Offset: off, BeforeFrame: d.frames, Identifier: string(id), Data: data, Size: size,
-	})
+	if keep {
+		d.meta.Applications = append(d.meta.Applications, Application{
+			Offset: off, BeforeFrame: d.frames, Identifier: string(id), Data: data, Size: size,
+		})
+	}
 	// The loop count is sub-block 1 of the Netscape extension, which some
 	// encoders write under the ANIMEXTS name. As in browsers, the last
 	// one in the file wins.
@@ -144,8 +149,8 @@ func (d *Decoder) readApplication(br *blockReader, off int64) error {
 }
 
 func (d *Decoder) readUnknown(br *blockReader, label byte, off int64) error {
-	data, size, err := br.readAll(math.MaxInt64)
-	if err != nil {
+	data, size, keep, err := d.readPayload(br)
+	if err != nil || !keep {
 		return err
 	}
 	d.meta.UnknownExtensions = append(d.meta.UnknownExtensions, Extension{

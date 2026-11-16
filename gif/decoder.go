@@ -25,6 +25,7 @@ import (
 	"image/color"
 	"io"
 	"iter"
+	"math"
 	"time"
 )
 
@@ -43,7 +44,11 @@ const (
 )
 
 // Options configures a Decoder. The zero value is ready to use.
-type Options struct{}
+type Options struct {
+	// Limits bounds what a file may make the decoder allocate and
+	// compute. Fields left at zero use DefaultLimits.
+	Limits Limits
+}
 
 // Header is the fixed information at the start of the file.
 type Header struct {
@@ -82,22 +87,33 @@ type graphicControl struct {
 // Decoder reads a GIF frame by frame. It buffers its input, so it may read
 // past the end of the GIF in the underlying reader.
 type Decoder struct {
-	r      reader
-	header Header
-	frames int
-	meta   Metadata
-	gc     *graphicControl // waiting for the next image
-	lzw    *lzw.Reader
-	pix    []byte // backs Frame.Pixels
-	rows   []byte // stream-order pixels of an interlaced frame
-	err    error  // sticky result of Next
+	r        reader
+	limits   Limits
+	header   Header
+	frames   int
+	decoded  int64 // pixels decoded so far
+	meta     Metadata
+	metaLeft int64           // unspent part of Limits.MaxMetadataBytes
+	gc       *graphicControl // waiting for the next image
+	lzw      *lzw.Reader
+	pix      []byte // backs Frame.Pixels
+	rows     []byte // stream-order pixels of an interlaced frame
+	err      error  // sticky result of Next
 }
 
-// NewDecoder reads the header from r. Input that stops part-way through is
-// reported with an error wrapping io.ErrUnexpectedEOF, anything else that
-// cannot be decoded with a *FormatError.
+// NewDecoder reads the header from r.
+//
+// Decoding fails in three ways, here and in Next: input that stops part-way
+// through a block gives an error wrapping io.ErrUnexpectedEOF, input that
+// exceeds opts.Limits a *LimitError, and anything else that cannot be
+// decoded a *FormatError.
 func NewDecoder(r io.Reader, opts Options) (*Decoder, error) {
-	d := &Decoder{r: reader{br: bufio.NewReader(r)}}
+	limits := opts.Limits.withDefaults()
+	d := &Decoder{
+		r:        reader{br: bufio.NewReader(r)},
+		limits:   limits,
+		metaLeft: limits.MaxMetadataBytes,
+	}
 	if err := d.readHeader(); err != nil {
 		return nil, err
 	}
@@ -124,6 +140,9 @@ func (d *Decoder) readHeader() error {
 		Height:          le16(b[8:]),
 		BackgroundIndex: b[11],
 		PixelAspect:     b[12],
+	}
+	if err := d.checkPixels("canvas pixels", d.header.Width, d.header.Height); err != nil {
+		return err
 	}
 	if packed := b[10]; packed&0x80 != 0 {
 		pal, err := d.readPalette(1 << (packed&7 + 1))
@@ -251,7 +270,19 @@ func (d *Decoder) readGraphicControl(br *blockReader) error {
 	return err
 }
 
+// checkPixels applies Limits.MaxPixels to a w by h area. It also refuses an
+// area whose size does not fit in an int, whatever the limit says.
+func (d *Decoder) checkPixels(what string, w, h int) error {
+	if n := int64(w) * int64(h); n > d.limits.MaxPixels || n > math.MaxInt {
+		return &LimitError{Limit: what, Value: n, Max: d.limits.MaxPixels}
+	}
+	return nil
+}
+
 func (d *Decoder) readFrame(off int64) (*Frame, error) {
+	if d.frames >= d.limits.MaxFrames {
+		return nil, &LimitError{Limit: "frames", Value: int64(d.frames) + 1, Max: int64(d.limits.MaxFrames)}
+	}
 	var b [9]byte
 	if err := d.r.readFull(b[:]); err != nil {
 		return nil, err
@@ -279,7 +310,15 @@ func (d *Decoder) readFrame(off int64) (*Frame, error) {
 		d.gc = nil
 	}
 
+	// The limits are checked before anything is allocated for the frame.
+	if err := d.checkPixels("frame pixels", w, h); err != nil {
+		return nil, err
+	}
 	n := w * h
+	if total := d.decoded + int64(n); total > d.limits.MaxDecodedBytes {
+		return nil, &LimitError{Limit: "decoded bytes", Value: total, Max: d.limits.MaxDecodedBytes}
+	}
+	d.decoded += int64(n)
 	d.pix = grow(d.pix, n)
 	f.Pixels = d.pix
 	dst := f.Pixels

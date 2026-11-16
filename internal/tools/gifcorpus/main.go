@@ -41,9 +41,33 @@ func main() {
 	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 
-func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+// output wraps a stream and remembers its first write failure, so the many
+// print calls below need no individual error checks.
+type output struct {
+	w   io.Writer
+	err error
+}
+
+func (o *output) printf(format string, args ...any) {
+	if _, err := fmt.Fprintf(o.w, format, args...); err != nil && o.err == nil {
+		o.err = err
+	}
+}
+
+// run executes the command line and returns the process exit code. A command
+// that succeeds but could not write its output still counts as a failure.
+func run(ctx context.Context, args []string, stdoutW, stderrW io.Writer) int {
+	stdout, stderr := &output{w: stdoutW}, &output{w: stderrW}
+	code := dispatch(ctx, args, stdout, stderr)
+	if code == 0 && (stdout.err != nil || stderr.err != nil) {
+		return 1
+	}
+	return code
+}
+
+func dispatch(ctx context.Context, args []string, stdout, stderr *output) int {
 	if len(args) == 0 {
-		fmt.Fprint(stderr, usage)
+		stderr.printf("%s", usage)
 		return 2
 	}
 	var err error
@@ -55,10 +79,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	case "discover":
 		err = runDiscover(ctx, rest, stdout, stderr)
 	case "-h", "-help", "--help", "help":
-		fmt.Fprint(stdout, usage)
+		stdout.printf("%s", usage)
 		return 0
 	default:
-		fmt.Fprintf(stderr, "gifcorpus: unknown command %q\n\n%s", cmd, usage)
+		stderr.printf("gifcorpus: unknown command %q\n\n%s", cmd, usage)
 		return 2
 	}
 	switch err {
@@ -69,7 +93,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	case errIncomplete:
 		return 1
 	}
-	fmt.Fprintln(stderr, "gifcorpus:", err)
+	stderr.printf("gifcorpus: %v\n", err)
 	return 1
 }
 
@@ -89,8 +113,8 @@ func newFlags(name string, stderr io.Writer) *flag.FlagSet {
 	return fs
 }
 
-func runFetch(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := newFlags("fetch", stderr)
+func runFetch(ctx context.Context, args []string, stdout, stderr *output) error {
+	fs := newFlags("fetch", stderr.w)
 	manifest := fs.String("manifest", corpus.DefaultManifestPath, "manifest to read")
 	dir := fs.String("dir", defaultDir(), "directory to download into (env "+corpus.DirEnv+")")
 	limit := fs.Int("limit", 0, "download only the first N entries (0 = all)")
@@ -111,13 +135,13 @@ func runFetch(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		Progress: func(ev corpus.FetchEvent) {
 			switch ev.Status {
 			case corpus.StatusDownloaded:
-				fmt.Fprintf(stdout, "downloaded %9s  %s\n", humanBytes(ev.Entry.Size), ev.Entry.Title)
+				stdout.printf("downloaded %9s  %s\n", humanBytes(ev.Entry.Size), ev.Entry.Title)
 			case corpus.StatusFailed:
-				fmt.Fprintf(stderr, "FAILED     %s: %v\n", ev.Entry.Title, ev.Err)
+				stderr.printf("FAILED     %s: %v\n", ev.Entry.Title, ev.Err)
 			}
 		},
 	})
-	fmt.Fprintf(stdout, "%d downloaded (%s), %d already present, %d failed, in %s\n",
+	stdout.printf("%d downloaded (%s), %d already present, %d failed, in %s\n",
 		res.Downloaded, humanBytes(res.DownloadedBytes), res.Present, len(res.Failed), *dir)
 	if err != nil {
 		return err
@@ -128,8 +152,8 @@ func runFetch(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	return nil
 }
 
-func runVerify(args []string, stdout, stderr io.Writer) error {
-	fs := newFlags("verify", stderr)
+func runVerify(args []string, stdout, stderr *output) error {
+	fs := newFlags("verify", stderr.w)
 	manifest := fs.String("manifest", corpus.DefaultManifestPath, "manifest to read")
 	dir := fs.String("dir", defaultDir(), "directory holding the downloads (env "+corpus.DirEnv+")")
 	if err := fs.Parse(args); err != nil {
@@ -144,15 +168,15 @@ func runVerify(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	for _, e := range rep.Missing {
-		fmt.Fprintf(stdout, "missing  %s  %s\n", e.Filename(), e.Title)
+		stdout.printf("missing  %s  %s\n", e.Filename(), e.Title)
 	}
 	for _, e := range rep.Corrupt {
-		fmt.Fprintf(stdout, "corrupt  %s  %s\n", e.Filename(), e.Title)
+		stdout.printf("corrupt  %s  %s\n", e.Filename(), e.Title)
 	}
 	for _, name := range rep.Extra {
-		fmt.Fprintf(stdout, "extra    %s\n", name)
+		stdout.printf("extra    %s\n", name)
 	}
-	fmt.Fprintf(stdout, "%d of %d ok, %d missing, %d corrupt, %d not in manifest\n",
+	stdout.printf("%d of %d ok, %d missing, %d corrupt, %d not in manifest\n",
 		rep.OK, len(m.Entries), len(rep.Missing), len(rep.Corrupt), len(rep.Extra))
 	if !rep.Complete() {
 		return errIncomplete
@@ -160,8 +184,8 @@ func runVerify(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-func runDiscover(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := newFlags("discover", stderr)
+func runDiscover(ctx context.Context, args []string, stdout, stderr *output) error {
+	fs := newFlags("discover", stderr.w)
 	out := fs.String("out", corpus.DefaultManifestPath, "manifest to write")
 	category := fs.String("category", corpus.DefaultCategory, "Commons category to sample")
 	count := fs.Int("count", corpus.DefaultCount, "number of files to select")
@@ -192,10 +216,10 @@ func runDiscover(ctx context.Context, args []string, stdout, stderr io.Writer) e
 		return err
 	}
 	small, medium, large := corpus.BucketCounts(m.Entries)
-	fmt.Fprintf(stdout, "wrote %s: %d files, %s total\n", *out, len(m.Entries), humanBytes(m.TotalBytes()))
-	fmt.Fprintf(stdout, "%d small, %d medium, %d large (%s)\n", small, medium, large, corpus.BucketLimits())
+	stdout.printf("wrote %s: %d files, %s total\n", *out, len(m.Entries), humanBytes(m.TotalBytes()))
+	stdout.printf("%d small, %d medium, %d large (%s)\n", small, medium, large, corpus.BucketLimits())
 	if len(m.Entries) < *count {
-		fmt.Fprintf(stderr, "warning: wanted %d files but only %d fit the buckets and size cap; try -pages-per-prefix 2\n",
+		stderr.printf("warning: wanted %d files but only %d fit the buckets and size cap; try -pages-per-prefix 2\n",
 			*count, len(m.Entries))
 	}
 	return nil

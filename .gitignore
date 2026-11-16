@@ -31,3 +31,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Downloaded test corpus (see testdata/corpus/manifest.json)
+testdata/corpus/files/

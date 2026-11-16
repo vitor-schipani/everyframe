@@ -153,23 +153,47 @@ func fetchOne(ctx context.Context, e Entry, opts FetchOptions) FetchEvent {
 	return FetchEvent{Entry: e, Status: StatusDownloaded}
 }
 
-// download writes the entry to a temporary file next to path and moves it
-// into place only once its size and checksum match the manifest.
-func download(ctx context.Context, e Entry, path string, opts FetchOptions) (err error) {
-	resp, err := get(ctx, opts.Client, opts.UserAgent, e.URL)
+// download fetches the entry and moves it into place at path only once its
+// size and checksum match the manifest.
+func download(ctx context.Context, e Entry, path string, opts FetchOptions) error {
+	tmp, err := downloadToTemp(ctx, e, filepath.Dir(path), opts)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if err := os.Rename(tmp, path); err != nil {
+		return errors.Join(err, removeIfExists(tmp))
+	}
+	return nil
+}
 
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+// downloadToTemp writes the entry to a temporary file in dir and returns its
+// name. The file is verified, closed and world-readable on success, and
+// removed on any failure.
+func downloadToTemp(ctx context.Context, e Entry, dir string, opts FetchOptions) (name string, err error) {
+	// The temp file is created before the request so that its cleanup runs
+	// after the response body has been closed and can see a close failure.
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() {
-		tmp.Close()
+		if cerr := tmp.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close %s: %w", tmp.Name(), cerr)
+		}
 		if err != nil {
-			os.Remove(tmp.Name())
+			name = ""
+			err = errors.Join(err, removeIfExists(tmp.Name()))
+		}
+	}()
+
+	resp, err := get(ctx, opts.Client, opts.UserAgent, e.URL)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		// A close failure only matters when nothing else went wrong.
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = &transportError{fmt.Errorf("close response body for %s: %w", e.URL, cerr)}
 		}
 	}()
 
@@ -178,31 +202,41 @@ func download(ctx context.Context, e Entry, path string, opts FetchOptions) (err
 	// without storing all of it.
 	n, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(resp.Body, e.Size+1))
 	if err != nil {
-		return &transportError{fmt.Errorf("download %s: %w", e.URL, err)}
+		return "", &transportError{fmt.Errorf("download %s: %w", e.URL, err)}
 	}
 	if n != e.Size {
-		return fmt.Errorf("download %s: got %d bytes, manifest says %d", e.URL, n, e.Size)
+		return "", fmt.Errorf("download %s: got %d bytes, manifest says %d", e.URL, n, e.Size)
 	}
 	if sum := hex.EncodeToString(h.Sum(nil)); sum != e.SHA1 {
-		return fmt.Errorf("download %s: sha1 %s does not match manifest %s", e.URL, sum, e.SHA1)
+		return "", fmt.Errorf("download %s: sha1 %s does not match manifest %s", e.URL, sum, e.SHA1)
 	}
 	// CreateTemp makes the file owner-only; corpus files are ordinary data.
 	if err := tmp.Chmod(0o644); err != nil {
+		return "", err
+	}
+	return tmp.Name(), nil
+}
+
+// removeIfExists deletes path, treating an already missing file as success.
+func removeIfExists(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return nil
 }
 
 // checkFile returns nil when path holds exactly the bytes the entry describes.
-func checkFile(path string, e Entry) error {
+func checkFile(path string, e Entry) (err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		// A close failure only matters when nothing else went wrong.
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close %s: %w", path, cerr)
+		}
+	}()
 	info, err := f.Stat()
 	if err != nil {
 		return err

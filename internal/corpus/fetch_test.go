@@ -3,6 +3,8 @@ package corpus
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -281,5 +284,73 @@ func TestVerifyMissingAndExtra(t *testing.T) {
 	rep, err = Verify(fx.manifest, filepath.Join(fx.dir, "nope"))
 	if err != nil || len(rep.Missing) != 3 {
 		t.Errorf("missing dir: %+v, %v", rep, err)
+	}
+}
+
+// closeFailTransport makes Close on the first few response bodies fail.
+type closeFailTransport struct{ failures atomic.Int32 }
+
+func (t *closeFailTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := http.DefaultTransport.RoundTrip(r)
+	if err != nil {
+		return nil, err
+	}
+	resp.Body = &failingCloser{ReadCloser: resp.Body, t: t}
+	return resp, nil
+}
+
+type failingCloser struct {
+	io.ReadCloser
+	t *closeFailTransport
+}
+
+func (b *failingCloser) Close() error {
+	err := b.ReadCloser.Close()
+	if b.t.failures.Add(-1) >= 0 {
+		return errors.New("close failed")
+	}
+	return err
+}
+
+func TestFetchBodyCloseFailure(t *testing.T) {
+	t.Run("is retried", func(t *testing.T) {
+		fx := newFetchFixture(t)
+		tr := &closeFailTransport{}
+		tr.failures.Store(1)
+		res := fx.fetch(t, FetchOptions{Jobs: 1, Client: &http.Client{Transport: tr}})
+		if res.Downloaded != 3 || len(res.Failed) != 0 {
+			t.Fatalf("result: %+v", res)
+		}
+		if n := fx.files.hitCount("/one.gif"); n != 2 {
+			t.Errorf("/one.gif requested %d times, want 2", n)
+		}
+		fx.assertNoLeftovers(t, fx.manifest.Entries...)
+	})
+	t.Run("is reported and leaves nothing behind", func(t *testing.T) {
+		fx := newFetchFixture(t)
+		tr := &closeFailTransport{}
+		tr.failures.Store(1000)
+		res := fx.fetch(t, FetchOptions{Retries: 1, Client: &http.Client{Transport: tr}})
+		if res.Downloaded != 0 || len(res.Failed) != 3 {
+			t.Fatalf("result: %+v", res)
+		}
+		if !strings.Contains(res.Failed[0].Err.Error(), "close response body") {
+			t.Errorf("error should name the close failure: %v", res.Failed[0].Err)
+		}
+		fx.assertNoLeftovers(t)
+	})
+}
+
+func TestGetReportsCloseFailureWithStatus(t *testing.T) {
+	fx := newFetchFixture(t)
+	tr := &closeFailTransport{}
+	tr.failures.Store(1)
+	_, err := get(context.Background(), &http.Client{Transport: tr}, "test", fx.url+"/missing.gif")
+	var se *statusError
+	if !errors.As(err, &se) || se.Code != http.StatusNotFound {
+		t.Fatalf("status error lost: %v", err)
+	}
+	if !strings.Contains(err.Error(), "close response body") {
+		t.Errorf("close failure not reported: %v", err)
 	}
 }

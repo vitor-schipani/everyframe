@@ -199,12 +199,17 @@ func collectPrefix(ctx context.Context, opts DiscoverOptions, prefix string, see
 
 func apiQuery(ctx context.Context, opts DiscoverOptions, params url.Values) (*apiResponse, error) {
 	var out apiResponse
-	err := withRetry(ctx, opts.Retries, opts.Backoff, func() error {
+	err := withRetry(ctx, opts.Retries, opts.Backoff, func() (err error) {
 		resp, err := get(ctx, opts.Client, opts.UserAgent, opts.APIURL+"?"+params.Encode())
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer func() {
+			// A close failure only matters when nothing else went wrong.
+			if cerr := resp.Body.Close(); cerr != nil && err == nil {
+				err = &transportError{fmt.Errorf("close API response body: %w", cerr)}
+			}
+		}()
 		out = apiResponse{}
 		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 			return &transportError{fmt.Errorf("decode API response: %w", err)}

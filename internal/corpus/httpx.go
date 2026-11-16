@@ -94,14 +94,19 @@ func get(ctx context.Context, client *http.Client, userAgent, url string) (*http
 		return nil, &transportError{err}
 	}
 	if resp.StatusCode != http.StatusOK {
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
-		resp.Body.Close()
-		return nil, &statusError{
+		serr := &statusError{
 			URL:        url,
 			Code:       resp.StatusCode,
 			Status:     resp.Status,
 			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
 		}
+		// Draining lets the connection be reused; it is best effort, so a
+		// failure here is deliberately ignored.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+		if cerr := resp.Body.Close(); cerr != nil {
+			return nil, errors.Join(serr, fmt.Errorf("close response body for %s: %w", url, cerr))
+		}
+		return nil, serr
 	}
 	return resp, nil
 }

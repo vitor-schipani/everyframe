@@ -38,6 +38,8 @@ const (
 // Extension labels.
 const (
 	extGraphicControl = 0xF9
+	extComment        = 0xFE
+	extApplication    = 0xFF
 )
 
 // Options configures a Decoder. The zero value is ready to use.
@@ -83,6 +85,7 @@ type Decoder struct {
 	r      reader
 	header Header
 	frames int
+	meta   Metadata
 	gc     *graphicControl // waiting for the next image
 	lzw    *lzw.Reader
 	pix    []byte // backs Frame.Pixels
@@ -177,54 +180,74 @@ func (d *Decoder) next() (*Frame, error) {
 	for {
 		off := d.r.off
 		c, err := d.r.ReadByte()
+		if err == io.EOF {
+			d.meta.MissingTrailer = true
+			return nil, io.EOF
+		}
 		if err != nil {
-			// io.EOF here is a file that ends without a trailer.
 			return nil, err
 		}
 		switch c {
 		case blockExtension:
-			if err := d.readExtension(); err != nil {
+			if err := d.readExtension(off); err != nil {
 				return nil, err
 			}
 		case blockImage:
 			return d.readFrame(off)
 		case blockTrailer:
+			if err := d.scanTrailing(); err != nil {
+				return nil, err
+			}
 			return nil, io.EOF
 		default:
 			// Not the start of any block. Like browsers, stop here and
-			// show what came before.
+			// show what came before; the rest is trailing data.
+			d.meta.MissingTrailer = true
+			if err := d.scanTrailing(c); err != nil {
+				return nil, err
+			}
 			return nil, io.EOF
 		}
 	}
 }
 
-func (d *Decoder) readExtension() error {
+func (d *Decoder) readExtension(off int64) error {
 	label, err := d.r.mustByte()
 	if err != nil {
 		return err
 	}
 	br := &blockReader{r: &d.r}
-	if label == extGraphicControl {
-		var b [4]byte
-		n, _ := io.ReadFull(br, b[:])
-		if br.err != nil {
-			return br.err
-		}
-		// A block too short to hold the fields is ignored.
-		if n == len(b) {
-			gc := &graphicControl{
-				disposal:    Disposal(b[0] >> 2 & 7),
-				userInput:   b[0]&2 != 0,
-				transparent: -1,
-				delay:       time.Duration(le16(b[1:])) * 10 * time.Millisecond,
-			}
-			if b[0]&1 != 0 {
-				gc.transparent = int(b[3])
-			}
-			d.gc = gc
-		}
+	switch label {
+	case extGraphicControl:
+		return d.readGraphicControl(br)
+	case extComment:
+		return d.readComment(br, off)
+	case extApplication:
+		return d.readApplication(br, off)
 	}
-	_, err = br.drain()
+	return d.readUnknown(br, label, off)
+}
+
+func (d *Decoder) readGraphicControl(br *blockReader) error {
+	var b [4]byte
+	n, _ := io.ReadFull(br, b[:])
+	if br.err != nil {
+		return br.err
+	}
+	// A block too short to hold the fields is ignored.
+	if n == len(b) {
+		gc := &graphicControl{
+			disposal:    Disposal(b[0] >> 2 & 7),
+			userInput:   b[0]&2 != 0,
+			transparent: -1,
+			delay:       time.Duration(le16(b[1:])) * 10 * time.Millisecond,
+		}
+		if b[0]&1 != 0 {
+			gc.transparent = int(b[3])
+		}
+		d.gc = gc
+	}
+	_, err := br.drain()
 	return err
 }
 

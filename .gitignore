@@ -34,3 +34,8 @@ go.work.sum
 
 # Downloaded test corpus (see testdata/corpus/manifest.json)
 testdata/corpus/files/
+
+# Binaries built by `make build`
+/bin/
+# Default output of `make frames`
+/frames/

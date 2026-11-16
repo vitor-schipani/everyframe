@@ -2,6 +2,7 @@
 //
 //	everyframe inspect file.gif          describe the file and its frames
 //	everyframe inspect -json file.gif    the same, as JSON
+//	everyframe frames -o dir file.gif    write every frame as PNG files
 package main
 
 import (
@@ -18,6 +19,7 @@ const usage = `usage: everyframe <command> [flags] <file>
 
 commands:
   inspect   describe a GIF: header, frames, metadata and irregularities
+  frames    write every frame of a GIF as PNG files
 
 Give "-" as the file to read standard input.
 
@@ -45,6 +47,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	switch cmd, rest := args[0], args[1:]; cmd {
 	case "inspect":
 		err = runInspect(rest, stdin, stdout, stderr)
+	case "frames":
+		err = runFrames(rest, stdin, stdout, stderr)
 	case "help", "-h", "-help", "--help":
 		if _, err := fmt.Fprint(stdout, usage); err != nil {
 			return 1

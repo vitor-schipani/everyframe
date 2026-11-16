@@ -6,8 +6,10 @@ import (
 	"image"
 	"image/color"
 	stdgif "image/gif"
+	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -167,5 +169,123 @@ func TestInspectTruncated(t *testing.T) {
 	_, stdout, _ = runCLI(nil, "inspect", path)
 	if !strings.Contains(stdout, "trailer         not reached") {
 		t.Errorf("text report does not say the trailer was not reached:\n%s", stdout)
+	}
+}
+
+// readPNG decodes a PNG written by the frames command.
+func readPNG(t *testing.T, path string) image.Image {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = file.Close() }()
+	img, err := png.Decode(file)
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	return img
+}
+
+func listDir(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+func TestFrames(t *testing.T) {
+	path := writeFile(t, "anim.gif", testGIF(t))
+	dir := filepath.Join(t.TempDir(), "new", "out")
+	code, stdout, stderr := runCLI(nil, "frames", "-o", dir, path)
+	if code != 0 || stderr != "" {
+		t.Fatalf("exit code %d, stderr %q", code, stderr)
+	}
+	if want := "wrote 6 PNG files for 3 frames to " + dir + "\n"; stdout != want {
+		t.Errorf("stdout = %q, want %q", stdout, want)
+	}
+	want := []string{
+		"00000-shown.png", "00000-stored.png",
+		"00001-shown.png", "00001-stored.png",
+		"00002-shown.png", "00002-stored.png",
+	}
+	if got := listDir(t, dir); !slices.Equal(got, want) {
+		t.Fatalf("files = %v, want %v", got, want)
+	}
+
+	// Frame 1 is a 3x2 patch of red, drawn over a canvas of white.
+	stored := readPNG(t, filepath.Join(dir, "00001-stored.png"))
+	if stored.Bounds().Dx() != 3 || stored.Bounds().Dy() != 2 {
+		t.Errorf("stored frame 1 is %v, want 3x2", stored.Bounds())
+	}
+	shown := readPNG(t, filepath.Join(dir, "00001-shown.png"))
+	if shown.Bounds().Dx() != 8 || shown.Bounds().Dy() != 6 {
+		t.Fatalf("shown frame 1 is %v, want 8x6", shown.Bounds())
+	}
+	red, white := color.RGBA{R: 0xFF, A: 0xFF}, color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
+	if got := color.RGBAModel.Convert(shown.At(2, 1)); got != red {
+		t.Errorf("shown frame 1 at (2,1) = %v, want red", got)
+	}
+	if got := color.RGBAModel.Convert(shown.At(0, 0)); got != white {
+		t.Errorf("shown frame 1 at (0,0) = %v, want the white of frame 0", got)
+	}
+}
+
+func TestFramesView(t *testing.T) {
+	path := writeFile(t, "anim.gif", testGIF(t))
+	for view, suffix := range map[string]string{"stored": "-stored.png", "shown": "-shown.png"} {
+		dir := t.TempDir()
+		if code, _, stderr := runCLI(nil, "frames", "-view", view, "-o", dir, path); code != 0 {
+			t.Fatalf("-view %s: exit code %d, stderr %q", view, code, stderr)
+		}
+		names := listDir(t, dir)
+		if len(names) != 3 {
+			t.Errorf("-view %s wrote %v, want 3 files", view, names)
+		}
+		for _, name := range names {
+			if !strings.HasSuffix(name, suffix) {
+				t.Errorf("-view %s wrote %s", view, name)
+			}
+		}
+	}
+}
+
+func TestFramesErrors(t *testing.T) {
+	data := testGIF(t)
+	good := writeFile(t, "good.gif", data)
+	cut := writeFile(t, "cut.gif", data[:len(data)-12])
+
+	if code, _, stderr := runCLI(nil, "frames", good); code != 2 || !strings.Contains(stderr, "-o is required") {
+		t.Errorf("without -o: exit code %d, stderr %q", code, stderr)
+	}
+	if code, _, stderr := runCLI(nil, "frames", "-o", t.TempDir(), "-view", "sideways", good); code != 2 || !strings.Contains(stderr, "-view must be") {
+		t.Errorf("bad -view: exit code %d, stderr %q", code, stderr)
+	}
+
+	// A truncated file fails, but only after the frames it does contain
+	// have been written.
+	dir := t.TempDir()
+	code, stdout, stderr := runCLI(nil, "frames", "-o", dir, cut)
+	if code != 1 || !strings.Contains(stderr, "truncated") {
+		t.Errorf("truncated file: exit code %d, stderr %q", code, stderr)
+	}
+	if n := len(listDir(t, dir)); n < 4 || !strings.Contains(stdout, "wrote") {
+		t.Errorf("truncated file: %d files written, stdout %q", n, stdout)
+	}
+
+	// Nothing is created for a file that is not a GIF.
+	dir = filepath.Join(t.TempDir(), "never")
+	notGIF := writeFile(t, "not.gif", []byte("this is not a GIF"))
+	if code, _, _ := runCLI(nil, "frames", "-o", dir, notGIF); code != 1 {
+		t.Errorf("not a GIF: exit code %d, want 1", code)
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Errorf("output directory was created for a file that is not a GIF")
 	}
 }

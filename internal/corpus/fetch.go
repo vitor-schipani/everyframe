@@ -186,6 +186,10 @@ func download(ctx context.Context, e Entry, path string, opts FetchOptions) (err
 	if sum := hex.EncodeToString(h.Sum(nil)); sum != e.SHA1 {
 		return fmt.Errorf("download %s: sha1 %s does not match manifest %s", e.URL, sum, e.SHA1)
 	}
+	// CreateTemp makes the file owner-only; corpus files are ordinary data.
+	if err := tmp.Chmod(0o644); err != nil {
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}

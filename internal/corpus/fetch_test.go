@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -131,6 +132,13 @@ func TestFetchDownloadsThenSkips(t *testing.T) {
 	}
 	for _, e := range fx.manifest.Entries {
 		fx.assertStored(t, e)
+		info, err := os.Stat(e.LocalPath(fx.dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
+			t.Errorf("%s: mode %v, want 0644", e.Title, info.Mode().Perm())
+		}
 	}
 	fx.assertNoLeftovers(t, fx.manifest.Entries...)
 

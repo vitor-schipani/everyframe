@@ -49,6 +49,18 @@ type DiscoverOptions struct {
 	Retries   int
 	Backoff   time.Duration
 	Now       func() time.Time
+	// Progress, if set, is called after each prefix has been listed.
+	Progress func(DiscoverEvent)
+}
+
+// DiscoverEvent reports how far the category sampling has got.
+type DiscoverEvent struct {
+	// Prefix is the sort-key prefix that was just listed.
+	Prefix string
+	// Done and Total count prefixes.
+	Done, Total int
+	// Candidates is the number of acceptable files found so far.
+	Candidates int
 }
 
 func (o DiscoverOptions) withDefaults() DiscoverOptions {
@@ -135,6 +147,9 @@ func Discover(ctx context.Context, opts DiscoverOptions) (*Manifest, error) {
 		}
 		if err := collectPrefix(ctx, opts, prefix, seen); err != nil {
 			return nil, fmt.Errorf("list %q from prefix %q: %w", opts.Category, prefix, err)
+		}
+		if opts.Progress != nil {
+			opts.Progress(DiscoverEvent{Prefix: prefix, Done: i + 1, Total: len(opts.Prefixes), Candidates: len(seen)})
 		}
 	}
 	candidates := make([]Entry, 0, len(seen))

@@ -123,9 +123,18 @@ func TestDiscoverFollowsContinuation(t *testing.T) {
 		// A third page exists but PagesPerPrefix is 2, so it must not be requested.
 		"B|": listing(true, "", gif("File:b1.gif", 100)),
 	}}
+	var progress []DiscoverEvent
 	m := discoverWith(t, api, DiscoverOptions{
 		Prefixes: []string{"A", "B"}, PagesPerPrefix: 2, UserAgent: "test-agent/1",
+		Progress: func(ev DiscoverEvent) { progress = append(progress, ev) },
 	})
+	wantProgress := []DiscoverEvent{
+		{Prefix: "A", Done: 1, Total: 2, Candidates: 2},
+		{Prefix: "B", Done: 2, Total: 2, Candidates: 3},
+	}
+	if !reflect.DeepEqual(progress, wantProgress) {
+		t.Errorf("progress = %+v, want %+v", progress, wantProgress)
+	}
 
 	want := map[string]bool{"File:a1.gif": true, "File:a2.gif": true, "File:b1.gif": true}
 	if got := titles(m.Entries); !reflect.DeepEqual(got, want) {

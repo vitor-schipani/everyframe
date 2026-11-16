@@ -196,7 +196,13 @@ func runDiscover(ctx context.Context, args []string, stdout, stderr *output) err
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	stdout.printf("sampling %s on Wikimedia Commons\n", *category)
+	candidates := 0
 	m, err := corpus.Discover(ctx, corpus.DiscoverOptions{
+		Progress: func(ev corpus.DiscoverEvent) {
+			candidates = ev.Candidates
+			stdout.printf("[%2d/%d] listed prefix %s, %d candidates so far\n", ev.Done, ev.Total, ev.Prefix, ev.Candidates)
+		},
 		Category:       *category,
 		Count:          *count,
 		MaxTotalBytes:  *maxTotal,
@@ -215,6 +221,7 @@ func runDiscover(ctx context.Context, args []string, stdout, stderr *output) err
 		return err
 	}
 	small, medium, large := corpus.BucketCounts(m.Entries)
+	stdout.printf("selected %d of %d candidates\n", len(m.Entries), candidates)
 	stdout.printf("wrote %s: %d files, %s total\n", *out, len(m.Entries), humanBytes(m.TotalBytes()))
 	stdout.printf("%d small, %d medium, %d large (%s)\n", small, medium, large, corpus.BucketLimits())
 	if len(m.Entries) < *count {

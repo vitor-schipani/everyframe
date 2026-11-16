@@ -39,8 +39,7 @@ func retryDelay(err error) (time.Duration, bool) {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return 0, false
 	}
-	var se *statusError
-	if errors.As(err, &se) {
+	if se, ok := errors.AsType[*statusError](err); ok {
 		return se.RetryAfter, se.Code == http.StatusTooManyRequests || se.Code >= 500
 	}
 	var te *transportError

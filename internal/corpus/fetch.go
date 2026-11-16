@@ -114,13 +114,11 @@ func Fetch(ctx context.Context, m *Manifest, opts FetchOptions) (FetchResult, er
 		}
 	}
 	for range opts.Jobs {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for e := range work {
 				record(fetchOne(ctx, e, opts))
 			}
-		}()
+		})
 	}
 feed:
 	for _, e := range entries {

@@ -27,6 +27,15 @@ const (
 	DefaultUserAgent = "everyframe-gifcorpus/0.1 (+https://github.com/vitor-schipani/everyframe)"
 )
 
+// Dir is where the corpus files are kept: the directory named by DirEnv if it
+// is set, else DefaultDir. A relative result is relative to the repo root.
+func Dir() string {
+	if dir := os.Getenv(DirEnv); dir != "" {
+		return dir
+	}
+	return DefaultDir
+}
+
 // Manifest is the pinned list of corpus files.
 type Manifest struct {
 	Source      string    `json:"source"`

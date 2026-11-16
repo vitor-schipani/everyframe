@@ -155,13 +155,6 @@ func dispatch(ctx context.Context, args []string, stdout, stderr *output) int {
 // errIncomplete signals a failure that has already been reported in detail.
 var errIncomplete = fmt.Errorf("corpus incomplete")
 
-func defaultDir() string {
-	if dir := os.Getenv(corpus.DirEnv); dir != "" {
-		return dir
-	}
-	return corpus.DefaultDir
-}
-
 func newFlags(name string, stderr io.Writer) *flag.FlagSet {
 	fs := flag.NewFlagSet("gifcorpus "+name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -181,7 +174,7 @@ func plural(n int, word string) string {
 func runFetch(ctx context.Context, args []string, stdout, stderr *output) error {
 	fs := newFlags("fetch", stderr.w)
 	manifest := fs.String("manifest", corpus.DefaultManifestPath, "manifest to read")
-	dir := fs.String("dir", defaultDir(), "directory to download into (env "+corpus.DirEnv+")")
+	dir := fs.String("dir", corpus.Dir(), "directory to download into (env "+corpus.DirEnv+")")
 	limit := fs.Int("limit", 0, "download only the first N entries (0 = all)")
 	jobs := fs.Int("jobs", 3, "concurrent downloads")
 	userAgent := fs.String("user-agent", corpus.DefaultUserAgent, "User-Agent sent to the file host")
@@ -239,7 +232,7 @@ func runFetch(ctx context.Context, args []string, stdout, stderr *output) error 
 func runVerify(args []string, stdout, stderr *output) error {
 	fs := newFlags("verify", stderr.w)
 	manifest := fs.String("manifest", corpus.DefaultManifestPath, "manifest to read")
-	dir := fs.String("dir", defaultDir(), "directory holding the downloads (env "+corpus.DirEnv+")")
+	dir := fs.String("dir", corpus.Dir(), "directory holding the downloads (env "+corpus.DirEnv+")")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

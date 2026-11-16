@@ -34,3 +34,9 @@ go.work.sum
 
 # Downloaded test corpus (see testdata/corpus/manifest.json)
 testdata/corpus/files/
+
+# Binaries built by `make build`
+/bin/
+# Output of `make frames` (the default directory, and the one the README uses)
+/frames/
+/out/

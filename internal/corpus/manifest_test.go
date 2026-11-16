@@ -123,3 +123,14 @@ func TestSameSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestDir(t *testing.T) {
+	t.Setenv(DirEnv, "")
+	if got := Dir(); got != DefaultDir {
+		t.Errorf("Dir() = %q, want %q", got, DefaultDir)
+	}
+	t.Setenv(DirEnv, "/somewhere/else")
+	if got := Dir(); got != "/somewhere/else" {
+		t.Errorf("Dir() = %q with %s set, want /somewhere/else", got, DirEnv)
+	}
+}

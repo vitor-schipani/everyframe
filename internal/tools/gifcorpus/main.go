@@ -217,12 +217,18 @@ func runDiscover(ctx context.Context, args []string, stdout, stderr *output) err
 	if len(m.Entries) == 0 {
 		return fmt.Errorf("no files matched in %s; manifest not written", *category)
 	}
-	if err := m.Save(*out); err != nil {
-		return err
-	}
 	small, medium, large := corpus.BucketCounts(m.Entries)
 	stdout.printf("selected %d of %d candidates\n", len(m.Entries), candidates)
-	stdout.printf("wrote %s: %d files, %s total\n", *out, len(m.Entries), humanBytes(m.TotalBytes()))
+	// Rewriting an identical selection would only change the timestamp and
+	// leave a pointless diff, so the existing manifest is kept as it is.
+	if old, err := corpus.Load(*out); err == nil && old.SameSelection(m) {
+		stdout.printf("%s is already up to date: %d files, %s total\n", *out, len(m.Entries), humanBytes(m.TotalBytes()))
+	} else {
+		if err := m.Save(*out); err != nil {
+			return err
+		}
+		stdout.printf("wrote %s: %d files, %s total\n", *out, len(m.Entries), humanBytes(m.TotalBytes()))
+	}
 	stdout.printf("%d small, %d medium, %d large (%s)\n", small, medium, large, corpus.BucketLimits())
 	if len(m.Entries) < *count {
 		stderr.printf("warning: wanted %d files but only %d fit the buckets and size cap; try -pages-per-prefix 2\n",

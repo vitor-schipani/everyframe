@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 )
 
@@ -92,6 +93,14 @@ func (m *Manifest) TotalBytes() int64 {
 		total += e.Size
 	}
 	return total
+}
+
+// SameSelection reports whether other describes the same files with the same
+// parameters, ignoring when each manifest was generated.
+func (m *Manifest) SameSelection(other *Manifest) bool {
+	a, b := *m, *other
+	a.GeneratedAt, b.GeneratedAt = "", ""
+	return reflect.DeepEqual(a, b)
 }
 
 // Load reads and validates a manifest.

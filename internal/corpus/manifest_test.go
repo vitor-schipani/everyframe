@@ -89,3 +89,37 @@ func TestLoadRejectsInvalidEntries(t *testing.T) {
 		})
 	}
 }
+
+func TestSameSelection(t *testing.T) {
+	base := func() *Manifest {
+		return &Manifest{
+			Source:      DefaultAPIURL,
+			Category:    DefaultCategory,
+			GeneratedAt: "2026-01-02T03:04:05Z",
+			Selection:   Selection{Count: 1, MaxFileBytes: 10, MaxTotalBytes: 20},
+			Entries:     []Entry{testEntry("File:a.gif", "https://example.org/a.gif", []byte("aaa"))},
+		}
+	}
+	later := base()
+	later.GeneratedAt = "2027-06-07T08:09:10Z"
+	if !base().SameSelection(later) {
+		t.Error("manifests differing only in generation time should match")
+	}
+	cases := map[string]func(*Manifest){
+		"entry added": func(m *Manifest) {
+			m.Entries = append(m.Entries, testEntry("File:b.gif", "https://example.org/b.gif", []byte("b")))
+		},
+		"entry changed": func(m *Manifest) { m.Entries[0].License = "CC BY 4.0" },
+		"parameters":    func(m *Manifest) { m.Selection.Count = 2 },
+		"category":      func(m *Manifest) { m.Category = "Category:Other" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			other := base()
+			mutate(other)
+			if base().SameSelection(other) {
+				t.Error("manifests should differ")
+			}
+		})
+	}
+}

@@ -118,6 +118,9 @@ func (b *blockReader) drain() (int64, error) {
 // readPixels decodes one frame's LZW data into dst, which is in stream order.
 // It reports how many pixels the data fell short by, and whether anything was
 // left over once dst was full. Missing pixels are set to zero.
+//
+// If the input ends inside the data, the error wraps io.ErrUnexpectedEOF and
+// missing still says how much of dst was left unfilled.
 func (d *Decoder) readPixels(dst []byte) (missing int, surplus bool, err error) {
 	off := d.r.off
 	litWidth, err := d.r.mustByte()
@@ -136,7 +139,8 @@ func (d *Decoder) readPixels(dst []byte) (missing int, surplus bool, err error) 
 
 	n, err := io.ReadFull(d.lzw, dst)
 	if br.err != nil {
-		return 0, false, br.err
+		clear(dst[n:])
+		return len(dst) - n, false, br.err
 	}
 	switch err {
 	case nil:

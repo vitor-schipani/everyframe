@@ -313,6 +313,44 @@ func TestTruncated(t *testing.T) {
 	}
 }
 
+// A frame the input ends inside of is returned as far as it goes, and the
+// truncation is reported after it.
+func TestTruncatedFrameIsDelivered(t *testing.T) {
+	pixels := make([]byte, 64*64)
+	for i := range pixels {
+		pixels[i] = byte(i*i>>3) | 1 // never 0, and hard to compress
+	}
+	b := newBuilder(64, 64, greys(256))
+	b.image(image.Rect(0, 0, 64, 64), nil, false, []byte{1})
+	b.image(image.Rect(0, 0, 64, 64), nil, false, pixels)
+	b.image(image.Rect(0, 0, 64, 64), nil, false, pixels)
+	data := b.trailer().bytes()
+
+	d, err := NewDecoder(bytes.NewReader(data[:len(data)/3]), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, err := d.Next(); err != nil || f.Truncated {
+		t.Fatalf("frame 0: Truncated = %v, err = %v", f != nil && f.Truncated, err)
+	}
+	f, err := d.Next()
+	if err != nil {
+		t.Fatalf("frame 1: %v, want the partial frame", err)
+	}
+	got := len(f.Pixels) - f.MissingPixels
+	if !f.Truncated || got == 0 || f.MissingPixels == 0 {
+		t.Fatalf("frame 1: Truncated = %v with %d pixels missing of %d", f.Truncated, f.MissingPixels, len(f.Pixels))
+	}
+	if !bytes.Equal(f.Pixels[:got], pixels[:got]) || !bytes.Equal(f.Pixels[got:], make([]byte, f.MissingPixels)) {
+		t.Error("frame 1: decoded pixels are wrong, or the missing ones are not zero")
+	}
+	for range 2 {
+		if _, err := d.Next(); !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Errorf("Next after the cut frame = %v, want io.ErrUnexpectedEOF", err)
+		}
+	}
+}
+
 // Files written by the standard encoder decode to the same frames.
 func TestMatchesStandardEncoder(t *testing.T) {
 	pal := greys(8)
@@ -346,7 +384,7 @@ func TestMatchesStandardEncoder(t *testing.T) {
 		if f.Delay != time.Duration(src.Delay[i])*10*time.Millisecond || byte(f.Disposal) != src.Disposal[i] {
 			t.Errorf("frame %d: delay %v, disposal %v", i, f.Delay, f.Disposal)
 		}
-		if f.MissingPixels != 0 || f.SurplusData || f.OutOfCanvas || f.IndexOutOfRange {
+		if f.MissingPixels != 0 || f.Truncated || f.SurplusData || f.OutOfCanvas || f.IndexOutOfRange {
 			t.Errorf("frame %d of a regular file is flagged: %+v", i, f)
 		}
 	}

@@ -73,6 +73,10 @@ type Frame struct {
 	// MissingPixels is how many pixels the compressed data fell short by.
 	// They are set to index 0.
 	MissingPixels int
+	// Truncated reports that the pixels are missing because the input
+	// ended inside this frame. It is then the last frame, and the next
+	// call to Decoder.Next returns the error.
+	Truncated bool
 	// SurplusData reports compressed data left over after the last pixel.
 	SurplusData bool
 	// OutOfCanvas reports that Rect is not contained in the canvas.

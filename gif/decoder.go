@@ -20,6 +20,7 @@ package gif
 import (
 	"bufio"
 	"compress/lzw"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -98,6 +99,7 @@ type Decoder struct {
 	lzw      *lzw.Reader
 	pix      []byte // backs Frame.Pixels
 	rows     []byte // stream-order pixels of an interlaced frame
+	cut      error  // truncation to report once the cut frame is delivered
 	err      error  // sticky result of Next
 }
 
@@ -169,6 +171,9 @@ func (d *Decoder) readPalette(n int) (color.Palette, error) {
 // Next returns the next frame, or io.EOF after the last one. Once it has
 // returned an error it keeps returning the same one.
 //
+// When the input ends in the middle of a frame's pixels, that frame is still
+// returned, marked Truncated, and the call after it reports the error.
+//
 // The frame's Pixels are overwritten by the following call.
 func (d *Decoder) Next() (*Frame, error) {
 	if d.err != nil {
@@ -196,6 +201,9 @@ func (d *Decoder) Frames() iter.Seq2[*Frame, error] {
 }
 
 func (d *Decoder) next() (*Frame, error) {
+	if d.cut != nil {
+		return nil, d.cut
+	}
 	for {
 		off := d.r.off
 		c, err := d.r.ReadByte()
@@ -328,7 +336,13 @@ func (d *Decoder) readFrame(off int64) (*Frame, error) {
 	}
 	missing, surplus, err := d.readPixels(dst)
 	if err != nil {
-		return nil, err
+		// A frame cut short by the end of the input is still shown by
+		// viewers, as far as it goes. Hand over what there is of it
+		// and report the truncation on the next call.
+		if !errors.Is(err, io.ErrUnexpectedEOF) || missing == n {
+			return nil, err
+		}
+		d.cut, f.Truncated = err, true
 	}
 	if f.Interlaced {
 		deinterlace(f.Pixels, dst, w, h)

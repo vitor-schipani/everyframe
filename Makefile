@@ -12,11 +12,11 @@ test: ## Run the unit tests
 
 .PHONY: corpus
 corpus: ## Download the GIF test corpus and verify it (fetch + verify)
-	$(GIFCORPUS) fetch
-	$(GIFCORPUS) verify
+	@$(GIFCORPUS) fetch
+	@$(GIFCORPUS) verify
 
 .PHONY: corpus-refresh
 corpus-refresh: ## Re-pick the corpus from Wikimedia Commons, then fetch and verify (maintainers)
-	$(GIFCORPUS) discover
-	$(GIFCORPUS) fetch
-	$(GIFCORPUS) verify
+	@$(GIFCORPUS) discover
+	@$(GIFCORPUS) fetch
+	@$(GIFCORPUS) verify

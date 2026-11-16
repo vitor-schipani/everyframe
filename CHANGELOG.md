@@ -8,4 +8,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- `gifcorpus` tool (`go run ./internal/tools/gifcorpus`) that downloads and verifies a pinned corpus of about 100 freely licensed GIFs from Wikimedia Commons for end-to-end tests, plus the manifest listing them.
+- `gifcorpus` tool (`make corpus-fetch`, `make corpus-verify`, `make corpus-discover`) that downloads and verifies a pinned corpus of about 100 freely licensed GIFs from Wikimedia Commons for end-to-end tests, plus the manifest listing them.

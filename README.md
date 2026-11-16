@@ -15,6 +15,14 @@ everyframe frames -o out/ file.gif     # every frame as PNG files
 
 `frames` writes two pictures per frame: `00000-stored.png`, the frame's own rectangle as it is in the file, and `00000-shown.png`, the whole canvas as a viewer displays it at that point. `-view stored` or `-view shown` writes only one of them.
 
+From a clone, three make targets wrap the command:
+
+```sh
+make build                              # build bin/everyframe
+make inspect FILE=file.gif              # add ARGS=-json for JSON
+make frames FILE=file.gif OUT=out/      # OUT defaults to frames/
+```
+
 Both commands read standard input when the file is `-`, and take `-max-pixels`, `-max-frames` and `-max-decoded-bytes` to adjust the decoding limits. They exit with 0 on success, 1 when the file could not be fully decoded (what was decoded is still reported or written), and 2 for a mistake in the command line.
 
 ## Decoding GIFs

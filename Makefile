@@ -20,21 +20,3 @@ corpus-refresh: ## Re-pick the corpus from Wikimedia Commons, then fetch and ver
 	$(GIFCORPUS) discover
 	$(GIFCORPUS) fetch
 	$(GIFCORPUS) verify
-
-# Deprecated targets. They still work but print a warning, and are hidden
-# from `make help`. Use `make corpus` or `make corpus-refresh` instead.
-
-.PHONY: corpus-fetch
-corpus-fetch:
-	@echo "warning: 'make corpus-fetch' is deprecated; use 'make corpus'" >&2
-	$(GIFCORPUS) fetch $(ARGS)
-
-.PHONY: corpus-verify
-corpus-verify:
-	@echo "warning: 'make corpus-verify' is deprecated; use 'make corpus'" >&2
-	$(GIFCORPUS) verify $(ARGS)
-
-.PHONY: corpus-discover
-corpus-discover:
-	@echo "warning: 'make corpus-discover' is deprecated; use 'make corpus-refresh'" >&2
-	$(GIFCORPUS) discover $(ARGS)

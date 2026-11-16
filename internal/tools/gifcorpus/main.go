@@ -17,14 +17,22 @@ import (
 	"github.com/vitor-schipani/everyframe/internal/corpus"
 )
 
-const usage = `usage: gifcorpus <command> [flags]
+const usage = `usage: go run ./internal/tools/gifcorpus <command> [flags]
+
+Run it from the repository root; there is nothing to install.
 
 commands:
   fetch      download the corpus files listed in the manifest
   verify     check the downloaded files against the manifest, offline
   discover   rebuild the manifest from Wikimedia Commons (maintainers)
 
-Run "gifcorpus <command> -h" for the flags of a command.
+Each command has a make target that passes flags through ARGS:
+  make corpus-fetch ARGS="-limit 10"
+  make corpus-verify
+  make corpus-discover
+
+For the flags of a command:
+  go run ./internal/tools/gifcorpus <command> -h
 `
 
 func main() {

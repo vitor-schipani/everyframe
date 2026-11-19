@@ -100,7 +100,11 @@ func checkCorpusFile(t *testing.T, e corpus.Entry, path string, stats *corpusSta
 		t.Fatalf("%s: %v", e.Title, err)
 	}
 	h := d.Header()
-	if h.Width != e.Width || h.Height != e.Height {
+	// Commons records no size for a file its own software cannot read, as
+	// happens with some of the malformed ones.
+	if e.Width == 0 && e.Height == 0 {
+		t.Logf("%s: canvas is %dx%d; Commons could not measure it", e.Title, h.Width, h.Height)
+	} else if h.Width != e.Width || h.Height != e.Height {
 		t.Errorf("%s: canvas is %dx%d, manifest says %dx%d", e.Title, h.Width, h.Height, e.Width, e.Height)
 	}
 

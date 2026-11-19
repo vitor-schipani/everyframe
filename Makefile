@@ -1,4 +1,5 @@
 GIFCORPUS := go run ./internal/tools/gifcorpus
+GIFBENCH := go run ./internal/tools/gifbench
 EVERYFRAME := go run ./cmd/everyframe
 
 .DEFAULT_GOAL := help
@@ -56,3 +57,11 @@ corpus-extended-refresh: ## Re-pick the extended corpus, then fetch and verify (
 	@$(GIFCORPUS) discover -extended
 	@$(GIFCORPUS) fetch -extended
 	@$(GIFCORPUS) verify -extended
+
+.PHONY: bench
+bench: ## Report time and memory per stage on the corpus: make bench [ARGS="-runs 3"]
+	@$(GIFBENCH) $(ARGS)
+
+.PHONY: bench-extended
+bench-extended: ## The same report on the extended corpus
+	@$(GIFBENCH) -extended $(ARGS)

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-19
+
+### Added
+
+- Package `features`: detection features for each frame (delay, stored, hidden and drawn pixels, change from the previous picture, and a perceptual hash with its distance from the previous and the first frame) and for the animation as a whole, including container signals such as extension sizes and data after the end of the GIF.
+- `everyframe features` command, which prints those measurements as text or JSON, and a `make features` target.
+
 ## [0.2.0] - 2026-11-16
 
 ### Added

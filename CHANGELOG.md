@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Extended GIF corpus: an opt-in second tier of about 1000 more files from 17 Wikimedia Commons categories, including single-frame and malformed GIFs, with its own manifest. `make corpus-extended` downloads it and `make test-extended` runs the end-to-end tests against it.
 - `gifcorpus` takes `-extended` on every command, and `discover` can sample several categories (`-category`, repeatable), accept GIFs that are not animated (`-still`) and leave out the files of another manifest (`-exclude`).
+- `Extractor.OnStage` in package `features`, which reports the end of each stage of `Add` so that the cost of each feature can be measured.
+- `gifbench` tool (`make bench`, `make bench-extended`) that reports the time and memory spent on a corpus or on given files, end to end and per stage, as text or JSON.
 
 ### Changed
 

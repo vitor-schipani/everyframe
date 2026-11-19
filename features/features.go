@@ -122,6 +122,8 @@ type Extractor struct {
 	first, last Hash
 	hashes      map[Hash]struct{}
 	sum         Summary
+
+	onStage func(Stage)
 }
 
 // NewExtractor returns an Extractor for an animation with the given header.
@@ -170,10 +172,12 @@ func (e *Extractor) Add(f *gif.Frame) Frame {
 	area := f.Rect.Intersect(e.bounds)
 	out.OutsidePixels = out.StoredPixels - int64(area.Dx())*int64(area.Dy())
 	e.measureStored(f, area, &out)
+	e.done(StageStored)
 
 	// The canvas can only differ from the previous picture where the
 	// previous frame was disposed of and where this one was drawn.
 	shown := e.canvas.Draw(f)
+	e.done(StageComposite)
 	var diff int64
 	for _, r := range [2]image.Rectangle{e.prevArea, area} {
 		changed, d := e.sync(shown, r)
@@ -184,6 +188,7 @@ func (e *Extractor) Add(f *gif.Frame) Frame {
 	if n := len(e.prev); n > 0 {
 		out.Change = float64(diff) / (255 * float64(n))
 	}
+	e.done(StageChange)
 
 	out.Hash = e.hash()
 	if e.sum.Frames == 0 {
@@ -194,7 +199,9 @@ func (e *Extractor) Add(f *gif.Frame) Frame {
 	out.HashDistanceFirst = out.Hash.Distance(e.first)
 	e.last = out.Hash
 	e.hashes[out.Hash] = struct{}{}
+	e.done(StageHash)
 
 	e.summarise(f, &out)
+	e.done(StageSummary)
 	return out
 }

@@ -85,6 +85,28 @@ For the animation, `Summary` adds the total duration and the shortest and longes
 
 `Extract` returns the report on the frames it could read together with the error when a file is cut short. To handle frames as they are decoded, use an `Extractor`: `Add` measures one frame and `Shown` returns the picture displayed for it. The time spent on a frame depends on the size of the frame, not of the canvas; memory is eight bytes per canvas pixel, twelve once a frame restores the previous picture.
 
+To see what each feature costs, give the `Extractor` a function with `OnStage`: `Add` calls it as it finishes each stage of its work (`StageStored`, `StageComposite`, `StageChange`, `StageHash`, `StageSummary`), so the time or memory spent since the previous call belongs to that stage.
+
+## Benchmark
+
+`make bench` measures the time and memory it takes to decode every file of the corpus and extract its features, and prints a report in the terminal, with a progress line while it runs:
+
+```sh
+make bench                                    # the standard corpus
+make bench-extended                           # the extended corpus
+make bench ARGS="-runs 3 -json -o bench.json" # fastest of three runs, and keep a JSON copy
+go run ./internal/tools/gifbench a.gif b.gif  # the files named, instead of a corpus
+```
+
+The report has four parts:
+
+- **End to end**: one call to `features.Extract` per file, held in memory so that disk speed does not count. It gives the total time and throughput, the memory allocated, the largest heap any file needed and the peak memory of the whole run.
+- **Per stage**: the same work split into reading the frames (`decode`), allocating the canvas and buffers (`setup`) and each feature (`stored`, `composite`, `change`, `hash`, `summary`), with the time, its share, the time per frame and per megapixel, and the memory allocated.
+- **Per file**: the median, 90th and 99th percentile and maximum of time, peak heap and memory allocated.
+- **Slowest files** and **largest peak heap**: the files to look at first, with the stage that dominates each.
+
+Files are measured one at a time. Time and memory are taken in separate passes, because reading the allocator's counters stops the program. `-json` prints every file's measurements, per stage too; `-o` writes the report to a file as well as the terminal.
+
 ## Test corpus
 
 End-to-end tests run against a pinned set of about 100 real, freely licensed GIFs (roughly 250 MB) from Wikimedia Commons. The files are not stored in the repository; `testdata/corpus/manifest.json` lists each one with its URL, size, SHA-1, licence and author.

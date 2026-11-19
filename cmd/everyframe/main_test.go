@@ -289,3 +289,90 @@ func TestFramesErrors(t *testing.T) {
 		t.Errorf("output directory was created for a file that is not a GIF")
 	}
 }
+
+func TestFeaturesText(t *testing.T) {
+	path := writeFile(t, "anim.gif", append(testGIF(t), "PK\x03\x04 appended"...))
+	code, stdout, stderr := runCLI(nil, "features", path)
+	if code != 0 || stderr != "" {
+		t.Fatalf("exit code %d, stderr %q", code, stderr)
+	}
+	for _, want := range []string{
+		"canvas               8x6",
+		"frames               3",
+		"duration             600ms",
+		"delays               100ms to 300ms, 0 frames with none",
+		"loop count           0 (forever)",
+		"pixels               102 stored, 0 outside the canvas, 0 transparent, 102 drawn",
+		"irregular frames     none",
+		"applications         1, 3 bytes",
+		"trailer              present",
+		"trailing data        13 bytes",
+		"from first",
+		"1      200ms  6       0        0            6      1        6        ",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("output lacks %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestFeaturesJSON(t *testing.T) {
+	code, stdout, stderr := runCLI(testGIF(t), "features", "-json", "-")
+	if code != 0 || stderr != "" {
+		t.Fatalf("exit code %d, stderr %q", code, stderr)
+	}
+	var rep featuresReport
+	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, stdout)
+	}
+	s := rep.Summary
+	if rep.File != "-" || rep.Error != "" || s == nil || s.Width != 8 || s.Height != 6 || s.Frames != 3 {
+		t.Fatalf("report = %+v, summary = %+v", rep, s)
+	}
+	if s.DurationMS != 600 || s.MinDelayMS != 100 || s.MaxDelayMS != 300 || s.LoopCount == nil || *s.LoopCount != 0 {
+		t.Errorf("summary = %+v", s)
+	}
+	if len(rep.Frames) != 3 {
+		t.Fatalf("%d frames, want 3", len(rep.Frames))
+	}
+	// Frame 1 paints a 3x2 red patch over white: 6 pixels lose their
+	// green and blue.
+	f := rep.Frames[1]
+	if f.Index != 1 || f.DelayMS != 200 || f.StoredPixels != 6 || f.DrawnPixels != 6 || f.ChangedPixels != 6 || f.Colours != 1 {
+		t.Errorf("frame 1 = %+v", f)
+	}
+	if want := 6.0 * 2 / (48 * 4); f.Change != want {
+		t.Errorf("frame 1 change = %v, want %v", f.Change, want)
+	}
+	if len(f.Hash) != 16 || f.HashDistance == 0 || f.HashDistance != f.HashDistanceFirst {
+		t.Errorf("frame 1 hash %q, %d from the previous frame, %d from the first", f.Hash, f.HashDistance, f.HashDistanceFirst)
+	}
+	if s.MaxChangeFrame != 2 || s.MaxHashDistanceFirstFrame != 1 || s.MaxHashDistanceFirst != f.HashDistanceFirst {
+		t.Errorf("summary = %+v", s)
+	}
+}
+
+// A file that stops part-way is measured as far as it goes, and a file that
+// is not a GIF gives a report with nothing but the error.
+func TestFeaturesErrors(t *testing.T) {
+	data := testGIF(t)
+	code, stdout, stderr := runCLI(data[:len(data)-12], "features", "-json", "-")
+	if code != 1 || !strings.Contains(stderr, "truncated") {
+		t.Errorf("exit code %d, stderr %q; want 1 and a truncation message", code, stderr)
+	}
+	var rep featuresReport
+	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, stdout)
+	}
+	if !strings.Contains(rep.Error, "truncated") || len(rep.Frames) < 2 || rep.Summary == nil || rep.Summary.Frames != len(rep.Frames) {
+		t.Errorf("error %q with %d frames, summary %+v", rep.Error, len(rep.Frames), rep.Summary)
+	}
+	if _, stdout, _ = runCLI(data[:len(data)-12], "features", "-"); !strings.Contains(stdout, "trailer              not reached") {
+		t.Errorf("text report does not say the trailer was not reached:\n%s", stdout)
+	}
+
+	code, stdout, _ = runCLI([]byte("this is not a GIF"), "features", "-json", "-")
+	if code != 1 || !strings.Contains(stdout, `"frames": []`) || strings.Contains(stdout, `"summary"`) || !strings.Contains(stdout, "not a GIF") {
+		t.Errorf("not a GIF: exit code %d, output %s", code, stdout)
+	}
+}

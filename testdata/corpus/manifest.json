@@ -1,6 +1,8 @@
 {
   "source": "https://commons.wikimedia.org/w/api.php",
-  "category": "Category:Animated GIF files",
+  "categories": [
+    "Category:Animated GIF files"
+  ],
   "generated_at": "2026-11-16T17:35:26Z",
   "selection": {
     "count": 100,

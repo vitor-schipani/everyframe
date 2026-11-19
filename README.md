@@ -97,12 +97,26 @@ make corpus    # download into testdata/corpus/files/ and verify
 
 Once the corpus is present, `go test ./...` decodes every file in it, compares the result with the standard library's decoder, and extracts the features of every frame. Without the corpus, or with `-short`, those tests are skipped.
 
-Maintainers can re-pick the files with `make corpus-refresh`, which rewrites the manifest from Wikimedia Commons and then fetches and verifies the new selection. Commit the manifest change so everyone tests against the same files.
+### Extended corpus
 
-Both targets wrap `go run ./internal/tools/gifcorpus`, which can also be run directly for a single step or extra flags:
+A second, opt-in tier adds about 1000 more GIFs (roughly 2.5 GB), none of them in the standard corpus. They are drawn from 17 Commons categories chosen for what the standard corpus has little of: animations with very many pixels, photographs, flags and maps, transparency, the output of particular encoders, single-frame GIFs and files known to be malformed. `testdata/corpus/extended.json` lists them.
+
+```sh
+make corpus-extended    # download into testdata/corpus/extended/ and verify
+make test-extended      # run the end-to-end tests against both corpora
+```
+
+`go test ./...` leaves the extended corpus alone even when it is downloaded; the tests use it only when `EVERYFRAME_CORPUS_EXTENDED=1` is set, which is what `make test-extended` does. Set `EVERYFRAME_CORPUS_EXTENDED_DIR` to keep the files somewhere else.
+
+### Maintaining the corpora
+
+Maintainers can re-pick the files with `make corpus-refresh`, which rewrites the manifest from Wikimedia Commons and then fetches and verifies the new selection. `make corpus-extended-refresh` does the same for the extended corpus, leaving out the files the standard manifest already has, so refresh the standard corpus first when doing both. Commit the manifest change so everyone tests against the same files.
+
+All four targets wrap `go run ./internal/tools/gifcorpus`, which can also be run directly for a single step or extra flags:
 
 ```sh
 go run ./internal/tools/gifcorpus fetch -limit 10   # a quick partial corpus
 go run ./internal/tools/gifcorpus verify            # check the local copy, offline
+go run ./internal/tools/gifcorpus verify -extended  # any command, for the extended corpus
 go run ./internal/tools/gifcorpus help              # all commands
 ```

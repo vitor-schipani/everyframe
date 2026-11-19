@@ -34,6 +34,8 @@ go.work.sum
 
 # Downloaded test corpus (see testdata/corpus/manifest.json)
 testdata/corpus/files/
+# Downloaded extended corpus (see testdata/corpus/extended.json)
+testdata/corpus/extended/
 
 # Binaries built by `make build`
 /bin/

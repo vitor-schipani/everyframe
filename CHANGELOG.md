@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Extended GIF corpus: an opt-in second tier of about 1000 more files from 17 Wikimedia Commons categories, including single-frame and malformed GIFs, with its own manifest. `make corpus-extended` downloads it and `make test-extended` runs the end-to-end tests against it.
+- `gifcorpus` takes `-extended` on every command, and `discover` can sample several categories (`-category`, repeatable), accept GIFs that are not animated (`-still`) and leave out the files of another manifest (`-exclude`).
+
+### Changed
+
+- The corpus manifest lists its source categories under `categories` instead of a single `category`.
+
 ## [0.3.0] - 2026-11-19
 
 ### Added

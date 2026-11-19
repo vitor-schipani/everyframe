@@ -16,19 +16,30 @@ import (
 
 // TestCorpus measures every file of the real-world corpus, and checks the
 // result against what the frames and a second, independent canvas say.
-func TestCorpus(t *testing.T) {
+func TestCorpus(t *testing.T) { testCorpus(t, corpus.Standard) }
+
+// TestExtendedCorpus does the same for the extended corpus, which is large
+// enough that it only runs when asked for.
+func TestExtendedCorpus(t *testing.T) {
+	if os.Getenv(corpus.ExtendedTestEnv) == "" {
+		t.Skipf("set %s=1 to test the extended corpus", corpus.ExtendedTestEnv)
+	}
+	testCorpus(t, corpus.Extended)
+}
+
+func testCorpus(t *testing.T, tier corpus.Tier) {
 	if testing.Short() {
 		t.Skip("the corpus test is skipped in -short mode")
 	}
 	const root = ".." // tests run in the package directory
-	dir := corpus.Dir()
+	dir := tier.Dir()
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(root, dir)
 	}
 	if _, err := os.Stat(dir); err != nil {
-		t.Skipf("corpus not downloaded (%v); run `make corpus` in the repo root", err)
+		t.Skipf("%s corpus not downloaded (%v); run `make %s` in the repo root", tier.Name, err, tier.MakeTarget)
 	}
-	m, err := corpus.Load(filepath.Join(root, corpus.DefaultManifestPath))
+	m, err := corpus.Load(filepath.Join(root, tier.ManifestPath))
 	if err != nil {
 		t.Fatal(err)
 	}

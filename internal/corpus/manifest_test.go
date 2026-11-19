@@ -26,7 +26,7 @@ func testEntry(title, url string, content []byte) Entry {
 func TestManifestRoundTrip(t *testing.T) {
 	want := &Manifest{
 		Source:      DefaultAPIURL,
-		Category:    DefaultCategory,
+		Categories:  []string{DefaultCategory},
 		GeneratedAt: "2026-01-02T03:04:05Z",
 		Selection:   Selection{Count: 2, MaxFileBytes: 10, MaxTotalBytes: 20},
 		Entries: []Entry{
@@ -94,7 +94,7 @@ func TestSameSelection(t *testing.T) {
 	base := func() *Manifest {
 		return &Manifest{
 			Source:      DefaultAPIURL,
-			Category:    DefaultCategory,
+			Categories:  []string{DefaultCategory},
 			GeneratedAt: "2026-01-02T03:04:05Z",
 			Selection:   Selection{Count: 1, MaxFileBytes: 10, MaxTotalBytes: 20},
 			Entries:     []Entry{testEntry("File:a.gif", "https://example.org/a.gif", []byte("aaa"))},
@@ -111,7 +111,8 @@ func TestSameSelection(t *testing.T) {
 		},
 		"entry changed": func(m *Manifest) { m.Entries[0].License = "CC BY 4.0" },
 		"parameters":    func(m *Manifest) { m.Selection.Count = 2 },
-		"category":      func(m *Manifest) { m.Category = "Category:Other" },
+		"category":      func(m *Manifest) { m.Categories = append(m.Categories, "Category:Other") },
+		"still":         func(m *Manifest) { m.Selection.Still = true },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -132,5 +133,45 @@ func TestDir(t *testing.T) {
 	t.Setenv(DirEnv, "/somewhere/else")
 	if got := Dir(); got != "/somewhere/else" {
 		t.Errorf("Dir() = %q with %s set, want /somewhere/else", got, DirEnv)
+	}
+}
+
+func TestTierDir(t *testing.T) {
+	t.Setenv(DirEnv, "/standard")
+	t.Setenv(ExtendedDirEnv, "")
+	if got := Extended.Dir(); got != ExtendedDir {
+		t.Errorf("Extended.Dir() = %q, want %q: %s must not move the extended tier", got, ExtendedDir, DirEnv)
+	}
+	if got := Standard.Dir(); got != "/standard" {
+		t.Errorf("Standard.Dir() = %q, want /standard", got)
+	}
+	t.Setenv(ExtendedDirEnv, "/extended")
+	if got := Extended.Dir(); got != "/extended" {
+		t.Errorf("Extended.Dir() = %q with %s set, want /extended", got, ExtendedDirEnv)
+	}
+}
+
+// TestCommittedManifests checks that the manifests in the repository load
+// and that the tiers do not share files.
+func TestCommittedManifests(t *testing.T) {
+	const root = "../.."
+	seen := map[string]string{}
+	for _, tier := range []Tier{Standard, Extended} {
+		m, err := Load(filepath.Join(root, tier.ManifestPath))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(m.Entries) == 0 || len(m.Entries) > m.Selection.Count {
+			t.Errorf("%s: %d entries for a selection of %d", tier.ManifestPath, len(m.Entries), m.Selection.Count)
+		}
+		if m.TotalBytes() > m.Selection.MaxTotalBytes {
+			t.Errorf("%s: %d bytes, over the cap of %d", tier.ManifestPath, m.TotalBytes(), m.Selection.MaxTotalBytes)
+		}
+		for _, e := range m.Entries {
+			if other, dup := seen[e.SHA1]; dup {
+				t.Errorf("%s is in both the %s and the %s tier", e.Title, other, tier.Name)
+			}
+			seen[e.SHA1] = tier.Name
+		}
 	}
 }

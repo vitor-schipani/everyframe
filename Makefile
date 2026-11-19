@@ -5,11 +5,15 @@ EVERYFRAME := go run ./cmd/everyframe
 
 .PHONY: help
 help: ## List the available targets
-	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-17s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-24s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: test
 test: ## Run the unit tests
 	go test ./...
+
+.PHONY: test-extended
+test-extended: ## Run the end-to-end tests against the extended corpus too
+	EVERYFRAME_CORPUS_EXTENDED=1 go test -timeout 60m ./gif ./features
 
 .PHONY: build
 build: ## Build the everyframe command into bin/everyframe
@@ -41,3 +45,14 @@ corpus-refresh: ## Re-pick the corpus from Wikimedia Commons, then fetch and ver
 	@$(GIFCORPUS) discover
 	@$(GIFCORPUS) fetch
 	@$(GIFCORPUS) verify
+
+.PHONY: corpus-extended
+corpus-extended: ## Download the extended GIF corpus, about 1000 more files, and verify it
+	@$(GIFCORPUS) fetch -extended
+	@$(GIFCORPUS) verify -extended
+
+.PHONY: corpus-extended-refresh
+corpus-extended-refresh: ## Re-pick the extended corpus, then fetch and verify (maintainers)
+	@$(GIFCORPUS) discover -extended
+	@$(GIFCORPUS) fetch -extended
+	@$(GIFCORPUS) verify -extended

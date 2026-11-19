@@ -34,6 +34,10 @@ func TestRunExitCodes(t *testing.T) {
 		{"command help", []string{"fetch", "-h"}, 0, "", "-limit"},
 		{"bad flag", []string{"verify", "-nope"}, 1, "", "-nope"},
 		{"missing manifest", []string{"verify", "-manifest", "does-not-exist.json"}, 1, "", "does-not-exist.json"},
+		// Tests do not run in the repo root, so neither tier's manifest is found.
+		{"standard manifest", []string{"verify"}, 1, "", corpus.Standard.ManifestPath},
+		{"extended manifest", []string{"verify", "-extended"}, 1, "", corpus.Extended.ManifestPath},
+		{"missing exclude", []string{"discover", "-exclude", "does-not-exist.json"}, 1, "", "does-not-exist.json"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -128,6 +132,26 @@ func TestFetchAndVerifyOutput(t *testing.T) {
 		"  ✓ 2 of 2 files ok\n"
 	if got != want {
 		t.Errorf("verify output:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestExtendedUsesItsOwnDirectory(t *testing.T) {
+	manifest, dir := writeCorpus(t)
+	t.Setenv(corpus.DirEnv, filepath.Join(dir, "standard"))
+	t.Setenv(corpus.ExtendedDirEnv, filepath.Join(dir, "extended"))
+
+	runOK(t, "fetch", "-extended", "-manifest", manifest)
+	got := runOK(t, "verify", "-extended", "-manifest", manifest)
+	if want := "==> Verifying " + filepath.Join(dir, "extended") + " against "; !strings.HasPrefix(got, want) {
+		t.Errorf("verify -extended output = %q, want it to start with %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "standard")); err == nil {
+		t.Error("fetch -extended wrote into the standard directory")
+	}
+	// -dir still wins over the tier.
+	got = runOK(t, "fetch", "-extended", "-manifest", manifest, "-dir", filepath.Join(dir, "other"))
+	if !strings.Contains(got, "2 downloaded") {
+		t.Errorf("fetch -extended -dir output = %q, want two downloads", got)
 	}
 }
 

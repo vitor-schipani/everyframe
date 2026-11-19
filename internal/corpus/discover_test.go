@@ -53,8 +53,9 @@ func gif(title string, size int64) apiFile {
 	return apiFile{title: title, content: title, size: size, mime: "image/gif", duration: 1.5, license: "CC0"}
 }
 
-// fakeAPI serves canned responses keyed by "<prefix>|<gcmcontinue>" and
-// records every request.
+// fakeAPI serves canned responses keyed by "<prefix>|<gcmcontinue>", or by
+// "<category>|<prefix>|<gcmcontinue>" in tests that list several categories,
+// and records every request.
 type fakeAPI struct {
 	t         *testing.T
 	responses map[string]map[string]any
@@ -69,6 +70,10 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	key := q.Get("gcmstartsortkeyprefix") + "|" + q.Get("gcmcontinue")
 	resp, ok := f.responses[key]
+	if !ok {
+		key = q.Get("gcmtitle") + "|" + key
+		resp, ok = f.responses[key]
+	}
 	if !ok {
 		f.t.Errorf("unexpected API request %q", key)
 		http.Error(w, "unexpected", http.StatusBadRequest)
@@ -129,8 +134,8 @@ func TestDiscoverFollowsContinuation(t *testing.T) {
 		Progress: func(ev DiscoverEvent) { progress = append(progress, ev) },
 	})
 	wantProgress := []DiscoverEvent{
-		{Prefix: "A", Done: 1, Total: 2, Candidates: 2},
-		{Prefix: "B", Done: 2, Total: 2, Candidates: 3},
+		{Category: DefaultCategory, Prefix: "A", Done: 1, Total: 2, Candidates: 2},
+		{Category: DefaultCategory, Prefix: "B", Done: 2, Total: 2, Candidates: 3},
 	}
 	if !reflect.DeepEqual(progress, wantProgress) {
 		t.Errorf("progress = %+v, want %+v", progress, wantProgress)
@@ -151,8 +156,60 @@ func TestDiscoverFollowsContinuation(t *testing.T) {
 			t.Errorf("gcmtitle = %q", got)
 		}
 	}
-	if m.GeneratedAt != "2026-01-02T03:04:05Z" || m.Category != DefaultCategory {
-		t.Errorf("header = %q %q", m.GeneratedAt, m.Category)
+	if m.GeneratedAt != "2026-01-02T03:04:05Z" || !reflect.DeepEqual(m.Categories, []string{DefaultCategory}) {
+		t.Errorf("header = %q %q", m.GeneratedAt, m.Categories)
+	}
+}
+
+func TestDiscoverSamplesEveryCategory(t *testing.T) {
+	shared := gif("File:shared.gif", 100)
+	api := &fakeAPI{t: t, responses: map[string]map[string]any{
+		"Category:One|A|": listing(true, "", gif("File:one.gif", 100), shared),
+		"Category:One|B|": listing(true, ""),
+		"Category:Two|A|": listing(true, "", gif("File:two.gif", 100), shared),
+		"Category:Two|B|": listing(true, "", gif("File:two-b.gif", 100)),
+	}}
+	var progress []DiscoverEvent
+	m := discoverWith(t, api, DiscoverOptions{
+		// The namespace is added when it is missing.
+		Categories: []string{"Category:One", "Two"}, Prefixes: []string{"A", "B"},
+		Progress: func(ev DiscoverEvent) { progress = append(progress, ev) },
+	})
+	wantProgress := []DiscoverEvent{
+		{Category: "Category:One", Prefix: "A", Done: 1, Total: 4, Candidates: 2},
+		{Category: "Category:One", Prefix: "B", Done: 2, Total: 4, Candidates: 2},
+		{Category: "Category:Two", Prefix: "A", Done: 3, Total: 4, Candidates: 3},
+		{Category: "Category:Two", Prefix: "B", Done: 4, Total: 4, Candidates: 4},
+	}
+	if !reflect.DeepEqual(progress, wantProgress) {
+		t.Errorf("progress = %+v, want %+v", progress, wantProgress)
+	}
+	// A file that is in both categories is listed once.
+	want := map[string]bool{"File:one.gif": true, "File:shared.gif": true, "File:two.gif": true, "File:two-b.gif": true}
+	if got := titles(m.Entries); !reflect.DeepEqual(got, want) || len(m.Entries) != len(want) {
+		t.Errorf("entries = %v, want %v", got, want)
+	}
+	if want := []string{"Category:One", "Category:Two"}; !reflect.DeepEqual(m.Categories, want) {
+		t.Errorf("Categories = %q, want %q", m.Categories, want)
+	}
+}
+
+func TestDiscoverStillAndExclude(t *testing.T) {
+	static := gif("File:static.gif", 100)
+	static.duration = 0
+	taken := gif("File:taken.gif", 100)
+	api := &fakeAPI{t: t, responses: map[string]map[string]any{
+		"A|": listing(true, "", gif("File:keep.gif", 100), static, taken),
+	}}
+	exclude := map[string]bool{testEntry(taken.title, "", []byte(taken.content)).SHA1: true}
+	m := discoverWith(t, api, DiscoverOptions{Prefixes: []string{"A"}, Still: true, Exclude: exclude})
+
+	want := map[string]bool{"File:keep.gif": true, "File:static.gif": true}
+	if got := titles(m.Entries); !reflect.DeepEqual(got, want) {
+		t.Errorf("entries = %v, want %v", got, want)
+	}
+	if !m.Selection.Still {
+		t.Error("the manifest does not record that still GIFs were accepted")
 	}
 }
 

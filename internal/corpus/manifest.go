@@ -3,6 +3,10 @@
 // The corpus is a pinned list of freely licensed GIFs hosted on Wikimedia
 // Commons. Only the manifest describing them is committed; the files are
 // downloaded on demand into a git-ignored directory.
+//
+// It comes in two tiers. Standard is small enough to run on every `go test`.
+// Extended is about ten times larger, drawn from more categories, and is only
+// downloaded and tested on request.
 package corpus
 
 import (
@@ -27,19 +31,57 @@ const (
 	DefaultUserAgent = "everyframe-gifcorpus/0.1 (+https://github.com/vitor-schipani/everyframe)"
 )
 
-// Dir is where the corpus files are kept: the directory named by DirEnv if it
-// is set, else DefaultDir. A relative result is relative to the repo root.
-func Dir() string {
-	if dir := os.Getenv(DirEnv); dir != "" {
+const (
+	// ExtendedManifestPath is the committed manifest of the extended tier.
+	ExtendedManifestPath = "testdata/corpus/extended.json"
+	// ExtendedDir is where the extended tier is downloaded.
+	ExtendedDir = "testdata/corpus/extended"
+	// ExtendedDirEnv overrides ExtendedDir when set.
+	ExtendedDirEnv = "EVERYFRAME_CORPUS_EXTENDED_DIR"
+	// ExtendedTestEnv, when set, makes the end-to-end tests also run against
+	// the extended tier.
+	ExtendedTestEnv = "EVERYFRAME_CORPUS_EXTENDED"
+)
+
+// Tier is one of the corpora: its manifest and where its files are kept.
+type Tier struct {
+	Name string
+	// ManifestPath is relative to the repo root.
+	ManifestPath string
+	// MakeTarget is the make target that downloads the tier.
+	MakeTarget string
+	defaultDir string
+	dirEnv     string
+}
+
+var (
+	// Standard is the tier every `go test` runs against once downloaded.
+	Standard = Tier{"standard", DefaultManifestPath, "corpus", DefaultDir, DirEnv}
+	// Extended is the larger, more varied tier that is tested only on request.
+	Extended = Tier{"extended", ExtendedManifestPath, "corpus-extended", ExtendedDir, ExtendedDirEnv}
+)
+
+// Dir is where the tier's files are kept: the directory named by its
+// environment variable if that is set, else its default. A relative result
+// is relative to the repo root.
+func (t Tier) Dir() string {
+	if dir := os.Getenv(t.dirEnv); dir != "" {
 		return dir
 	}
-	return DefaultDir
+	return t.defaultDir
 }
+
+// DirEnv is the environment variable that overrides the tier's directory.
+func (t Tier) DirEnv() string { return t.dirEnv }
+
+// Dir is where the standard tier's files are kept.
+func Dir() string { return Standard.Dir() }
 
 // Manifest is the pinned list of corpus files.
 type Manifest struct {
-	Source      string    `json:"source"`
-	Category    string    `json:"category"`
+	Source string `json:"source"`
+	// Categories are the Commons categories the files were sampled from.
+	Categories  []string  `json:"categories"`
 	GeneratedAt string    `json:"generated_at"`
 	Selection   Selection `json:"selection"`
 	Entries     []Entry   `json:"entries"`
@@ -50,6 +92,8 @@ type Selection struct {
 	Count         int   `json:"count"`
 	MaxFileBytes  int64 `json:"max_file_bytes"`
 	MaxTotalBytes int64 `json:"max_total_bytes"`
+	// Still records that GIFs with a single frame were accepted too.
+	Still bool `json:"still,omitempty"`
 }
 
 // Entry describes one corpus file.

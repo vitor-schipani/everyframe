@@ -24,18 +24,52 @@ const (
 	DefaultMaxFileBytes  = 20 << 20
 	DefaultMaxTotalBytes = 500 << 20
 
+	ExtendedCount         = 1000
+	ExtendedMaxTotalBytes = 3 << 30
+
 	smallMaxBytes  = 256 << 10
 	mediumMaxBytes = 4 << 20
 )
 
+// ExtendedCategories are the Commons categories the extended tier is drawn
+// from. Besides the general category they cover what it has little of: files
+// with very many pixels, photographs, flags and maps, transparency, the output
+// of particular encoders, single-frame GIFs and files known to be malformed.
+var ExtendedCategories = []string{
+	DefaultCategory,
+	"Category:Animated GIF files between 50 MP and 100 MP",
+	"Category:Animated GIF files exceeding the 100 MP limit",
+	"Category:Animated GIF maps",
+	"Category:Animated GIF flags",
+	"Category:Animated GIF throbbers",
+	"Category:Animated GIF files of people",
+	"Category:Animated GIF files with transparent background",
+	"Category:Animated GIF files with black background",
+	"Category:Animated Earth",
+	"Category:Animated GIF skies",
+	"Category:Time-lapse animations",
+	"Category:GIF animations created with Blender",
+	"Category:GIF animations assembled with gifsicle",
+	"Category:Still GIF files",
+	"Category:GIF files with errors",
+	"Category:True color GIF files",
+}
+
 // DiscoverOptions controls how a manifest is built from the Commons API.
 // Zero values select the defaults.
 type DiscoverOptions struct {
-	APIURL        string
-	Category      string
+	APIURL string
+	// Categories are the Commons categories sampled. Defaults to
+	// DefaultCategory alone.
+	Categories    []string
 	Count         int
 	MaxFileBytes  int64
 	MaxTotalBytes int64
+	// Still also accepts GIFs that are not animated.
+	Still bool
+	// Exclude holds the checksums of files that must not be selected, such
+	// as those another tier already has.
+	Exclude map[string]bool
 	// Prefixes are the category sort-key prefixes sampled, one listing each,
 	// so candidates are spread across the alphabet instead of all starting
 	// with the same characters. Defaults to A-Z and 0-9.
@@ -49,15 +83,17 @@ type DiscoverOptions struct {
 	Retries   int
 	Backoff   time.Duration
 	Now       func() time.Time
-	// Progress, if set, is called after each prefix has been listed.
+	// Progress, if set, is called after each prefix of each category has been
+	// listed.
 	Progress func(DiscoverEvent)
 }
 
 // DiscoverEvent reports how far the category sampling has got.
 type DiscoverEvent struct {
-	// Prefix is the sort-key prefix that was just listed.
-	Prefix string
-	// Done and Total count prefixes.
+	// Category and Prefix are the category and the sort-key prefix that were
+	// just listed.
+	Category, Prefix string
+	// Done and Total count listings: one per category and prefix.
 	Done, Total int
 	// Candidates is the number of acceptable files found so far.
 	Candidates int
@@ -67,12 +103,17 @@ func (o DiscoverOptions) withDefaults() DiscoverOptions {
 	if o.APIURL == "" {
 		o.APIURL = DefaultAPIURL
 	}
-	if o.Category == "" {
-		o.Category = DefaultCategory
+	if len(o.Categories) == 0 {
+		o.Categories = []string{DefaultCategory}
 	}
-	if !strings.HasPrefix(o.Category, "Category:") {
-		o.Category = "Category:" + o.Category
+	categories := make([]string, len(o.Categories))
+	for i, c := range o.Categories {
+		if !strings.HasPrefix(c, "Category:") {
+			c = "Category:" + c
+		}
+		categories[i] = c
 	}
+	o.Categories = categories
 	if o.Count <= 0 {
 		o.Count = DefaultCount
 	}
@@ -134,22 +175,26 @@ type apiPage struct {
 	} `json:"imageinfo"`
 }
 
-// Discover samples the category and returns a manifest of selected files.
+// Discover samples the categories and returns a manifest of selected files.
 // The selection is deterministic for a given set of API results.
 func Discover(ctx context.Context, opts DiscoverOptions) (*Manifest, error) {
 	opts = opts.withDefaults()
 	seen := make(map[string]Entry)
-	for i, prefix := range opts.Prefixes {
-		if i > 0 {
-			if err := sleep(ctx, opts.Delay); err != nil {
-				return nil, err
+	done, total := 0, len(opts.Categories)*len(opts.Prefixes)
+	for _, category := range opts.Categories {
+		for _, prefix := range opts.Prefixes {
+			if done > 0 {
+				if err := sleep(ctx, opts.Delay); err != nil {
+					return nil, err
+				}
 			}
-		}
-		if err := collectPrefix(ctx, opts, prefix, seen); err != nil {
-			return nil, fmt.Errorf("list %q from prefix %q: %w", opts.Category, prefix, err)
-		}
-		if opts.Progress != nil {
-			opts.Progress(DiscoverEvent{Prefix: prefix, Done: i + 1, Total: len(opts.Prefixes), Candidates: len(seen)})
+			if err := collectPrefix(ctx, opts, category, prefix, seen); err != nil {
+				return nil, fmt.Errorf("list %q from prefix %q: %w", category, prefix, err)
+			}
+			done++
+			if opts.Progress != nil {
+				opts.Progress(DiscoverEvent{Category: category, Prefix: prefix, Done: done, Total: total, Candidates: len(seen)})
+			}
 		}
 	}
 	candidates := make([]Entry, 0, len(seen))
@@ -158,26 +203,27 @@ func Discover(ctx context.Context, opts DiscoverOptions) (*Manifest, error) {
 	}
 	return &Manifest{
 		Source:      opts.APIURL,
-		Category:    opts.Category,
+		Categories:  opts.Categories,
 		GeneratedAt: opts.Now().UTC().Format(time.RFC3339),
 		Selection: Selection{
 			Count:         opts.Count,
 			MaxFileBytes:  opts.MaxFileBytes,
 			MaxTotalBytes: opts.MaxTotalBytes,
+			Still:         opts.Still,
 		},
 		Entries: selectEntries(candidates, opts.Count, opts.MaxTotalBytes),
 	}, nil
 }
 
-// collectPrefix reads up to PagesPerPrefix listing pages starting at prefix
-// and adds every acceptable file to seen, keyed by checksum.
-func collectPrefix(ctx context.Context, opts DiscoverOptions, prefix string, seen map[string]Entry) error {
+// collectPrefix reads up to PagesPerPrefix listing pages of category starting
+// at prefix and adds every acceptable file to seen, keyed by checksum.
+func collectPrefix(ctx context.Context, opts DiscoverOptions, category, prefix string, seen map[string]Entry) error {
 	params := url.Values{
 		"action":                {"query"},
 		"format":                {"json"},
 		"formatversion":         {"2"},
 		"generator":             {"categorymembers"},
-		"gcmtitle":              {opts.Category},
+		"gcmtitle":              {category},
 		"gcmtype":               {"file"},
 		"gcmlimit":              {"50"},
 		"gcmstartsortkeyprefix": {prefix},
@@ -195,7 +241,7 @@ func collectPrefix(ctx context.Context, opts DiscoverOptions, prefix string, see
 			return err
 		}
 		for _, p := range resp.Query.Pages {
-			if e, ok := entryFromPage(p, opts.MaxFileBytes); ok {
+			if e, ok := entryFromPage(p, opts.MaxFileBytes, opts.Still); ok && !opts.Exclude[e.SHA1] {
 				seen[e.SHA1] = e
 			}
 		}
@@ -241,8 +287,9 @@ func apiQuery(ctx context.Context, opts DiscoverOptions, params url.Values) (*ap
 }
 
 // entryFromPage converts an API page to an Entry, rejecting anything that is
-// not an animated, licensed GIF within the size limit.
-func entryFromPage(p apiPage, maxFileBytes int64) (Entry, bool) {
+// not a licensed GIF within the size limit, and, unless still is set, any GIF
+// that is not animated.
+func entryFromPage(p apiPage, maxFileBytes int64, still bool) (Entry, bool) {
 	if len(p.ImageInfo) == 0 {
 		return Entry{}, false
 	}
@@ -265,7 +312,7 @@ func entryFromPage(p apiPage, maxFileBytes int64) (Entry, bool) {
 		Artist:         meta("Artist"),
 	}
 	ok := ii.Mime == "image/gif" &&
-		e.Duration > 0 &&
+		(still || e.Duration > 0) &&
 		e.License != "" &&
 		e.Size <= maxFileBytes &&
 		e.validate() == nil
